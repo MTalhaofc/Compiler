@@ -1,5 +1,7 @@
+import streamlit as st
 import re
 from collections import defaultdict
+
 
 # Lexical Analyzer
 class LexicalAnalyzer:
@@ -128,93 +130,50 @@ class Parser:
         return ast
 
 
-# Semantic Analyzer
-class SemanticAnalyzer:
-    def __init__(self):
-        self.symbol_table = {}
-
-    def analyze(self, ast):
-        for node in ast:
-            if node['type'] == 'ASSIGNMENT':
-                self.evaluate_assignment(node)
-
-    def evaluate_assignment(self, node):
-        identifier = node['id']['value']
-        value = self.evaluate_expression(node['expression'])
-        self.symbol_table[identifier] = value
-
-    def evaluate_expression(self, node):
-        if node['type'] == 'NUMBER':
-            return node['value']
-        elif node['type'] == 'ID':
-            if node['value'] in self.symbol_table:
-                return self.symbol_table[node['value']]
-            else:
-                raise ValueError(f'Undefined variable {node["value"]}')
-        elif node['type'] == 'BINARY_OP':
-            left_value = self.evaluate_expression(node['left'])
-            right_value = self.evaluate_expression(node['right'])
-            if node['operator'] == '+':
-                return left_value + right_value
-            elif node['operator'] == '-':
-                return left_value - right_value
-            elif node['operator'] == '*':
-                return left_value * right_value
-            elif node['operator'] == '/':
-                if right_value == 0:
-                    raise ValueError('Division by zero')
-                return left_value / right_value
-        else:
-            raise ValueError('Invalid Expression')
-
-    def get_symbol_table(self):
-        return self.symbol_table
-
-
-# Main function
+# Streamlit App
 def main():
-    print("Enter your code. Use ';' to terminate statements. Type 'END' to finish input.")
-    lines = []
-    while True:
+    st.title("Simple Compiler with Parse Tree and Parse Table")
+
+    st.sidebar.header("Compiler Options")
+    code_input = st.text_area("Enter your code:", height=200, placeholder="x = 10;\ny = x + 5;")
+
+    if st.button("Compile"):
+        if not code_input.strip():
+            st.error("Please enter some code!")
+            return
+
+        # Lexical Analysis
+        lexer = LexicalAnalyzer()
         try:
-            line = input()
-            if line.strip().upper() == "END":
-                break
-            lines.append(line)
-        except EOFError:
-            break  # For compatibility with non-interactive environments
-    text = '\n'.join(lines)
+            tokens = lexer.analyze(code_input)
+        except SyntaxError as e:
+            st.error(f"Lexical Error: {e}")
+            return
 
-    # Lexical Analysis
-    lexer = LexicalAnalyzer()
-    tokens = lexer.analyze(text)
-    print("\nTokens:")
-    for token in tokens:
-        print(token)
+        st.subheader("Tokens")
+        for token in tokens:
+            st.write(token)
 
-    # Parsing
-    parser = Parser(tokens)
-    ast = parser.parse()
-    print("\nAbstract Syntax Tree (AST):")
-    for node in ast:
-        print(node)
+        # Parsing
+        parser = Parser(tokens)
+        try:
+            ast = parser.parse()
+        except SyntaxError as e:
+            st.error(f"Parsing Error: {e}")
+            return
 
-    print("\nParse Tree:")
-    for node in parser.parse_tree:
-        print(node)
+        st.subheader("Abstract Syntax Tree (AST)")
+        for node in ast:
+            st.write(node)
 
-    print("\nParse Table:")
-    for entry in parser.parse_table:
-        print(entry)
+        st.subheader("Parse Tree")
+        for node in parser.parse_tree:
+            st.json(node)
 
-    # Semantic Analysis
-    semantic_analyzer = SemanticAnalyzer()
-    semantic_analyzer.analyze(ast)
-    print("\nSymbol Table:")
-    for identifier, value in semantic_analyzer.get_symbol_table().items():
-        print(f"{identifier} = {value}")
+        st.subheader("Parse Table")
+        for entry in parser.parse_table:
+            st.write(entry)
 
 
-# Run the main function
 if __name__ == "__main__":
     main()
