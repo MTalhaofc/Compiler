@@ -1,5 +1,5 @@
-import streamlit as st
 import re
+from collections import defaultdict
 
 # Lexical Analyzer
 class LexicalAnalyzer:
@@ -7,16 +7,15 @@ class LexicalAnalyzer:
         self.tokens = []
 
     def analyze(self, text):
-        self.tokens = []  # Clear tokens for each analysis
         token_specification = [
-            ('NUMBER',   r'\d+'),           # Integer or decimal number
-            ('ASSIGN',   r'='),             # Assignment operator
-            ('END',      r';'),             # Statement terminator
-            ('ID',       r'[a-zA-Z_][a-zA-Z_0-9]*'),  # Identifiers
-            ('OP',       r'[+\-*/]'),       # Arithmetic operators
-            ('SKIP',     r'[ \t]+'),        # Skip over spaces and tabs
-            ('NEWLINE',  r'\n'),            # Line endings
-            ('MISMATCH', r'.'),             # Any other character
+            ('NUMBER', r'\d+'),           # Integer or decimal number
+            ('ASSIGN', r'='),             # Assignment operator
+            ('END', r';'),                # Statement terminator
+            ('ID', r'[a-zA-Z_][a-zA-Z_0-9]*'),  # Identifiers
+            ('OP', r'[+\-*/]'),           # Arithmetic operators
+            ('SKIP', r'[ \t]+'),          # Skip over spaces and tabs
+            ('NEWLINE', r'\n'),           # Line endings
+            ('MISMATCH', r'.'),           # Any other character
         ]
 
         tok_regex = '|'.join(f'(?P<{pair[0]}>{pair[1]})' for pair in token_specification)
@@ -45,6 +44,8 @@ class Parser:
     def __init__(self, tokens):
         self.tokens = tokens
         self.current_token_index = 0
+        self.parse_table = []  # Parse table to store grammar rules applied
+        self.parse_tree = []   # Parse tree to represent the structure
 
     def peek(self):
         if self.current_token_index < len(self.tokens):
@@ -56,17 +57,17 @@ class Parser:
         self.current_token_index += 1
         return current
 
-    def parse(self):
-        ast = []
-        while self.peek() is not None:
-            ast.append(self.statement())
-        return ast
+    def add_to_parse_table(self, non_terminal, rule):
+        """Adds a step to the parse table."""
+        self.parse_table.append({"Non-Terminal": non_terminal, "Rule": rule})
 
     def statement(self):
+        """Parses a single statement and builds part of the parse tree."""
         token = self.consume()
         if token is None:
             raise SyntaxError('Unexpected end of input while parsing statement')
         if token[0] == 'ID':
+            self.add_to_parse_table('STATEMENT', 'STATEMENT → ID = EXPRESSION ;')
             id_node = {'type': 'ID', 'value': token[1]}
             assign_token = self.consume()
             if assign_token is None or assign_token[0] != 'ASSIGN':
@@ -75,36 +76,56 @@ class Parser:
             end_token = self.consume()
             if end_token is None or end_token[0] != 'END':
                 raise SyntaxError('Expected END (;)')
-            return {'type': 'ASSIGNMENT', 'id': id_node, 'expression': expression_node}
+            statement_tree = {
+                'type': 'ASSIGNMENT',
+                'id': id_node,
+                'expression': expression_node
+            }
+            self.parse_tree.append(statement_tree)
+            return statement_tree
         else:
             raise SyntaxError('Expected ID')
 
     def expression(self):
+        """Parses an expression."""
         left = self.term()
         while self.peek() is not None and self.peek()[0] == 'OP' and self.peek()[1] in '+-':
             operator = self.consume()[1]
             right = self.term()
+            self.add_to_parse_table('EXPRESSION', 'EXPRESSION → EXPRESSION OP TERM')
             left = {'type': 'BINARY_OP', 'operator': operator, 'left': left, 'right': right}
         return left
 
     def term(self):
+        """Parses a term."""
         left = self.factor()
         while self.peek() is not None and self.peek()[0] == 'OP' and self.peek()[1] in '*/':
             operator = self.consume()[1]
             right = self.factor()
+            self.add_to_parse_table('TERM', 'TERM → TERM OP FACTOR')
             left = {'type': 'BINARY_OP', 'operator': operator, 'left': left, 'right': right}
         return left
 
     def factor(self):
+        """Parses a factor."""
         token = self.consume()
         if token is None:
             raise SyntaxError('Unexpected end of input while parsing factor')
         if token[0] == 'NUMBER':
+            self.add_to_parse_table('FACTOR', 'FACTOR → NUMBER')
             return {'type': 'NUMBER', 'value': int(token[1])}
         elif token[0] == 'ID':
+            self.add_to_parse_table('FACTOR', 'FACTOR → ID')
             return {'type': 'ID', 'value': token[1]}
         else:
             raise SyntaxError('Invalid Factor')
+
+    def parse(self):
+        """Parses the input tokens into an AST and generates the parse tree."""
+        ast = []
+        while self.peek() is not None:
+            ast.append(self.statement())
+        return ast
 
 
 # Semantic Analyzer
@@ -150,51 +171,50 @@ class SemanticAnalyzer:
         return self.symbol_table
 
 
-# Streamlit App
+# Main function
 def main():
-    st.title("Simple Arithmetic Compiler")
-
-    # User input
-    st.subheader("Input Code")
-    input_code = st.text_area("Enter your code here (end statements with ';')", height=200)
-
-    if st.button("Compile"):
+    print("Enter your code. Use ';' to terminate statements. Type 'END' to finish input.")
+    lines = []
+    while True:
         try:
-            # Lexical Analysis
-            lexer = LexicalAnalyzer()
-            tokens = lexer.analyze(input_code)
+            line = input()
+            if line.strip().upper() == "END":
+                break
+            lines.append(line)
+        except EOFError:
+            break  # For compatibility with non-interactive environments
+    text = '\n'.join(lines)
 
-            # Display tokens
-            st.subheader("Tokens")
-            for token in tokens:
-                st.text(token)
+    # Lexical Analysis
+    lexer = LexicalAnalyzer()
+    tokens = lexer.analyze(text)
+    print("\nTokens:")
+    for token in tokens:
+        print(token)
 
-            # Parsing
-            parser = Parser(tokens)
-            ast = parser.parse()
+    # Parsing
+    parser = Parser(tokens)
+    ast = parser.parse()
+    print("\nAbstract Syntax Tree (AST):")
+    for node in ast:
+        print(node)
 
-            # Display AST
-            st.subheader("Abstract Syntax Tree (AST)")
-            st.json(ast)
+    print("\nParse Tree:")
+    for node in parser.parse_tree:
+        print(node)
 
-            # Semantic Analysis
-            semantic_analyzer = SemanticAnalyzer()
-            semantic_analyzer.analyze(ast)
+    print("\nParse Table:")
+    for entry in parser.parse_table:
+        print(entry)
 
-            # Display Symbol Table
-            st.subheader("Symbol Table")
-            symbol_table = semantic_analyzer.get_symbol_table()
-            for identifier, value in symbol_table.items():
-                st.text(f"{identifier} = {value}")
-
-            # Result Output
-            st.subheader("Execution Result")
-            for identifier, value in symbol_table.items():
-                st.text(f"{identifier} = {value}")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
+    # Semantic Analysis
+    semantic_analyzer = SemanticAnalyzer()
+    semantic_analyzer.analyze(ast)
+    print("\nSymbol Table:")
+    for identifier, value in semantic_analyzer.get_symbol_table().items():
+        print(f"{identifier} = {value}")
 
 
+# Run the main function
 if __name__ == "__main__":
     main()
